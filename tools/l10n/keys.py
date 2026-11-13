@@ -21,6 +21,23 @@ def unescape(s):
     return re.sub(r'\\(u\{[0-9a-fA-F]+\}|.)', lambda m: chr(int(m[1][2:-1], 16)) if m[1].startswith('u{') else {'n': '\n', 't': '\t'}.get(m[1], m[1]), s)
 
 
+def without_test_mods(text):
+    """Blank out `#[cfg(test)] mod … { … }` blocks, wherever they sit, keeping line numbers."""
+    while m := re.search(r'^\s*#\[cfg\((?:all\()?test\b[^\]]*\]\s*mod\s+\w+\s*\{', text, re.M):
+        depth, i, in_str = 1, m.end(), False
+        while depth and i < len(text):
+            c = text[i]
+            if in_str:
+                if c == '\\': i += 1
+                elif c == '"': in_str = False
+            elif c == '"': in_str = True
+            elif c == '{': depth += 1
+            elif c == '}': depth -= 1
+            i += 1
+        text = text[:m.start()] + '\n' * text.count('\n', m.start(), i) + text[i:]
+    return text
+
+
 def version():
     return re.search(r'^version = "([^"]+)"', (ROOT / 'Cargo.toml').read_text(encoding='utf-8'), re.M)[1]
 
@@ -41,7 +58,7 @@ def collect():
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith('src/l10n/'):
             continue
-        text = path.read_text(encoding='utf-8').split('#[cfg(test)]')[0]
+        text = without_test_mods(path.read_text(encoding='utf-8'))
         line = lambda pos: f'{rel}:{text.count(chr(10), 0, pos) + 1}'
         if rel == 'src/changelog.rs':
             # Only the running version's notes are ever shown.
